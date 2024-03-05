@@ -264,6 +264,7 @@ for i = 1:length(f)
     end
 end
 
+
 %% Fault Isolation
 % 
 % faluts = [fy1 fy2 fy3 fu1 fu2];
@@ -273,32 +274,81 @@ H_binary = [0 1 1 0 0;
 f_hat = pinv(H_binary) * [eqn1; eqn2];
 %% GLR
 f_m = [0;-0.025;0];     % Sensor fault vector (added to [y1;y2;y3])
-h = chi2inv(1 - P_F, 1)/2; % define the threashold
+P_F = 0.0001;
+P_D = 0.99;
 
-% Given individual sensor variances
-sigma_sys = 0.0093;
-sigma_1_sq = sigma_sys^2; % Assuming sigma_1 = sigma_2 = sigma_3 = 0.0093
-sigma_2_sq = sigma_sys^2;
-sigma_3_sq = sigma_sys^2;
-
-% Covariance matrix of the sensor measurements
-Q_w = diag([sigma_1_sq, sigma_2_sq, sigma_3_sq]);
 load('C:\Users\giova\OneDrive\Desktop\DTU\Robust and Fault tolerant control\MATLAB\Assignment 1\Fault-Control-main\Residuals_test\exp1res.mat')
 
-mu_0 =  mean(out.r.signals.values(1:2075,1:2)', 2); % compute the mean before the fault
-mu_1 =  mean(out.r.signals.values(2175:end,1:2)', 2); % compute the mean after the fault
-Q = cov(out.r.signals.values(1:2075,1:2)); % covariance of the output before the fault
-sigma = sqrt(Q);
+% h = chi2inv(1 - P_F, 1)/2; % define the threashold
+% 
+% % Covariance matrix of the sensor measurements given above
+% load('C:\Users\giova\OneDrive\Desktop\DTU\Robust and Fault tolerant control\MATLAB\Assignment 1\Fault-Control-main\Residuals_test\exp1res.mat')
+% 
+% time = r(:,1);
+% mu_0 = 0; % compute the mean before the fault
+% mu_1 =  mean(out.r.signals.values(2175:end,2)', 2); % compute the mean after the fault
+% sigma = cov(out.r.signals.values(1:2075,1)); % covariance of the output before the fault
+% sigma = sqrt(Q);
+% 
+% syms M X 
+% lambda = M*(mu_1 - mu_0)^2/ sigma^2;
+% P_D = 0.99;
+% func = 1/2 * (X / lambda)^(-1/4)* exp(-(X + lambda) / 2)* besseli(-1/2, sqrt(lambda*X));
+% int_func = int(func, X, [2*h, Inf]);
+% eqn = P_D - int_func == 0;
+% sol = vpasolve(eqn, M, [0, Inf]); % Find M by solving the equation
+% 
+% M = sol;
 
-P_F = 0.0001;
+syms X h mm
+func = (1/(sqrt(2) * gamma(1/2))) * (X^(-1/2)) * (exp(-X/2));
+int_func = int(func, X, 2*h, Inf);
+eqn = P_F - int_func == 0;
+h = double(vpasolve(eqn, h));
 
-syms M X 
-lambda = M*(mu_1 - mu_0).^2./ sigma^2;
-P_D = 0.99;
-func = 1/2 .* (X ./ lambda).^(-1/4).* exp(-(X + lambda) ./ 2).* besseli(-1/2, sqrt(lambda.*X));
 
-func = int(func, X, 2*h, Inf);
+mu_0 = 0;                       % mean H0
 
+mu_1 = 0.065;                   % mean H1
+
+%sigma = 9.6172e-04;
+sigma = var(out.r.signals.values(:,2));
+% Use residual 2
+
+for M = 1:1000
+    lambda = M*(mu_1 - mu_0)^2 / sigma;
+    prob_detect = 1 - ncx2cdf(2*h, 1, lambda);
+    if prob_detect >= P_D
+        M;
+        break
+    end
+end
+%Calculate g(k)
+g = zeros(size(out.r.signals.values(:,2))); 
+for k = M:length(out.r.signals.values(:,2))
+    maxsum=0;
+    for j = k - M + 1:k
+        sumin = (sum(abs(out.r.signals.values(j:k)) - mu_0))^2;
+        if sumin > maxsum
+             maxsum = sumin;
+        end
+    end
+    g(k) = 1/(2 * sigma * M) * maxsum;
+end
+
+figure(1)
+subplot(2, 1, 1)
+plot(out.r.time, g);
+legend('$$g(t)$$', 'Interpreter', 'latex')
+xlabel('Time[s]')
+ylabel('Test statistics')
+grid on;
+subplot(2, 1, 2)
+plot(out.r.time, out.r.signals.values(:,2));
+legend('$$r_2(t)$$', 'Interpreter', 'latex')
+xlabel('Time[s]')
+ylabel('$$r_2(t)$$', 'Interpreter','latex')
+grid on
 
 %% Virtual actuator
 % Failure in actuator 2

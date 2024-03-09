@@ -202,30 +202,7 @@ F_x = [0 0 0 0 0;...
         0 0 0 0 0];
 
 F_y = [eye(3) zeros(3,2)];
-%%
-%%%%%%%% SKIP THAT WHEN SIMULATING IN OPEN LOOP %%%%%%%%%%%%%%%%%%%%%%%%%%%
-% % Discrete time
-% sys_d = [];
-% F_d = sys_d.A;
-% G_d = sys_d.B;
-% 
-% % State-feedback LQR design
-% Q_c = diag([2 0 2 0 2.5 0.0024]);
-% R_c = diag([10 10]);
-% K_c = [];
-% 
-% % Scaling of reference
-% C_ref = [];
-% 
-% % Kalman filter with friction estimation - DO NOT MODIFY
-% F_aug = [F_d G_d(:,1);zeros(1,6) 1];
-% G_aug = [G_d;0 0];
-% C_aug = [C zeros(3,1)];
-% % Kalman gain
-% L_aug = dlqe(F_aug,eye(7),C_aug,1e-3*eye(7),sigma_meas(1,1).^2*eye(3));
-% L_o = L_aug(1:6,:);
-% L_d = L_aug(7,:);
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 %% Residual filter design
 syms s;
 H_yu = simplify(C*inv((s*eye(6) - A))*B + D);
@@ -309,7 +286,7 @@ h = double(vpasolve(eqn, h));
 
 mu_0 = 0;                       % mean H0
 
-mu_1 = 0.065;                   % mean H1
+mu_1 = 0.065;                   
 
 %sigma = 9.6172e-04;
 sigma = var(out.r.signals.values(:,2));
@@ -328,7 +305,7 @@ g = zeros(size(out.r.signals.values(:,2)));
 for k = M:length(out.r.signals.values(:,2))
     maxsum=0;
     for j = k - M + 1:k
-        sumin = (sum(abs(out.r.signals.values(j:k)) - mu_0))^2;
+        sumin = (sum(out.r.signals.values(j:k)) - mu_0)^2;
         if sumin > maxsum
              maxsum = sumin;
         end
@@ -350,12 +327,84 @@ xlabel('Time[s]')
 ylabel('$$r_2(t)$$', 'Interpreter','latex')
 grid on
 
+
+%%
+%%%%%%% SKIP THAT WHEN SIMULATING IN OPEN LOOP %%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Discrete time
+sys_d = c2d(ss(A, [B E_x], C, [D zeros(3,1)]), T_s, 'tustin');
+F_d = sys_d.A;
+G_d = sys_d.B(:,1:2);
+
+if(rank(crtb(F_d, G_d)) == size(F_d,2))
+    disp("System is controllable");
+else
+    disp("System is not controllable");
+end
+
+% State-feedback LQR design
+Q_c = diag([2 0 2 0 2.5 0.0024]);
+R_c = diag([10 10]);
+[K_c, P_c, E_c] = dlqr(F_d, G_d, Q_c, R_c);
+
+% Scaling of reference
+C_3 = [0 0 0 0 1 0];
+C_ref = pinv(C_3*((eye(6)-F_d+G_d*K_c)^-1)*G_d*K_c);
+
+% Kalman filter with friction estimation - DO NOT MODIFY
+F_aug = [F_d G_d(:,1);zeros(1,6) 1];
+G_aug = [G_d;0 0];
+C_aug = [C zeros(3,1)];
+% Kalman gain
+L_aug = dlqe(F_aug,eye(7),C_aug,1e-3*eye(7),sigma_meas(1,1).^2*eye(3));
+L_o = L_aug(1:6,:);
+L_d = L_aug(7,:);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Virtual actuator
 % Failure in actuator 2
 % Do the desing first in continuous time
-va_eig_d = [];  % Discrete time eigenvalues
-va_eig = log(va_eig_d)/T_s;     % Continuous time eigenvalues
+B_f = B(:,1);
+G_f = G_d(:,1);
+
+if (rank(B_f) == rank([B B_f]))
+    disp('Perfect static matching for actuator fault');
+else
+    disp('Imperfect static matching for actuator fault');
+end
+
+if (rank(ctrb(A, B_f)) == size(A,2))
+    disp('Faulty system is controllable');
+else
+    disp('Faulty system is not controllable');
+end
+
+va_eig = log(eig(F_d - G_d*K_c))/T_s;     % Continuous time eigenvalues
 % Then discretise your VA
+M_va = place(A, B_f, va_eig);
+A_D = A - B_f*M_va;
+N_D = pinv(B_f)*B;
+B_D = B - B_f*N_D;
+C_D = C;
+
+if (rank(G_f) == rank([G_d G_f]))
+    disp('Perfect static matching for actuator fault');
+else
+    disp('Imperfect static matching for actuator fault');
+end
+
+if (rank(ctrb(F_d, G_f)) == size(F_d,2))
+    disp('Faulty system is controllable');
+else
+    disp('Faulty system is not controllable');
+end
+
+% Discrete time
+va_eig_d = exp(va_eig*T_s);     % Continuous time eigenvalues
+% Then discretise your VA
+M_va_d = place(F_d, G_f, va_eig_d);
+F_D = F_d - G_f*M_va_d;
+N_D_d = pinv(G_f)*G_d;
+G_D = G_d - G_f*N_D_d;
+C_D_d = C;
 
 B_change = [1 0;0 0];
 

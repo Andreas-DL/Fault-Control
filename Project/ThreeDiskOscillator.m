@@ -8,7 +8,7 @@ clc; clear; close all;
 
 % Load all the file
 load('ECP_values.mat');
-load('exp1res.mat');
+load('exp2glr.mat');
 load('sim_data.mat');
 
 
